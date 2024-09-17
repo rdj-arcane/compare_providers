@@ -44,18 +44,18 @@ app_ui = ui.page_fluid(
         ui.sidebar(
             ui.input_date_range(
                 "date_range", label="Date range", start=min_date, end=max_date
-            )
+            ),
+            ui.input_select(
+                "type",
+                label="Type",
+                choices=["wind", "wind_onshore", "wind_offshore", "solar", "load"],
+            ),
+            ui.input_numeric(
+                "power_hour", label="Power hour", value=0, min=0, max=24, step=1
+            ),
         ),
-        ui.input_select(
-            "type",
-            label="Type",
-            choices=["wind", "wind_onshore", "wind_offshore", "solar", "load"],
-        ),
-        ui.input_numeric(
-            "power_hour", label="Power hour", value=1, min=1, max=24, step=1
-        ),
+        output_widget("comparison_plot"),
     ),
-    output_widget("comparison_plot"),
 )
 
 
@@ -87,10 +87,12 @@ def server(input: Inputs, output: Outputs, session: Session):
 
         df_relevant = df.filter(
             pl.col(VALUE_TIME_COL).is_between(date_from, date_to),
-            pl.col(POWER_HOUR_COL) == power_hour,
-        ).select([VALUE_TIME_COL, actual_col, col])
+        )
 
-        return df_relevant
+        if power_hour > 0:
+            df_relevant = df_relevant.filter(pl.col(POWER_HOUR_COL) == power_hour)
+
+        return df_relevant.select([VALUE_TIME_COL, actual_col, col])
 
     @reactive.Calc
     def get_limits():
@@ -104,7 +106,7 @@ def server(input: Inputs, output: Outputs, session: Session):
         df = get_data()
 
         col, actual_col = get_cols()
-        fig = px.scatter(df.to_pandas(), x=actual_col, y=col)
+        fig = px.scatter(df, x=actual_col, y=col, hover_data=[VALUE_TIME_COL])
 
         x_min, x_max = get_limits()
         fig.add_shape(
