@@ -1,12 +1,10 @@
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
-from pathlib import Path
 import polars as pl
-import polars.selectors as cs
 
 import plotly.express as px
 
-from shiny import App, reactive, ui, render, Inputs, Outputs, Session
+from shiny import App, reactive, ui, Inputs, Outputs, Session
 from shinywidgets import render_widget, output_widget
 
 ACTUAL_LOAD_COL = "load"
@@ -26,11 +24,13 @@ min_date = date(2024, 1, 1)
 max_date = date(2024, 9, 1)
 
 df_enfor = pl.read_parquet("data/enfor.parquet")
-df_actuals = pl.read_parquet("data/actuals.parquet")
-
-df = df_actuals.join(df_enfor, on=VALUE_TIME_COL).with_columns(
+df_eq = pl.read_parquet("data/eq.parquet")
+df_actuals = pl.read_parquet("data/actuals.parquet").with_columns(
     pl.col(VALUE_TIME_COL).dt.hour().add(1).alias(POWER_HOUR_COL)
 )
+
+eq_tags = df_eq.select(pl.col("tag").unique()).get_column("tag").to_list()
+eq_tags_sorted = sorted(eq_tags)
 
 
 def date_to_datetime(date: date) -> datetime:
@@ -42,6 +42,8 @@ def date_to_datetime(date: date) -> datetime:
 app_ui = ui.page_fluid(
     ui.layout_sidebar(
         ui.sidebar(
+            ui.input_select("provider", label="Provider", choices=["enfor", "eq"]),
+            ui.input_select("tag", label="Tag", choices=eq_tags_sorted),
             ui.input_date_range(
                 "date_range", label="Date range", start=min_date, end=max_date
             ),
@@ -79,16 +81,28 @@ def server(input: Inputs, output: Outputs, session: Session):
         return input.power_hour()
 
     @reactive.Calc
+    def get_forecast_data():
+        match input.provider():
+            case "enfor":
+                df_forecast = df_enfor
+            case "eq":
+                df_forecast = df_eq.filter(pl.col("tag") == input.tag())
+
+        df = df_forecast.join(df_actuals, on=VALUE_TIME_COL)
+
+        return df
+
+    @reactive.Calc
     def get_data():
         col, actual_col = get_cols()
         date_from, date_to = get_date_range()
 
-        power_hour = get_power_hour()
-
+        df = get_forecast_data()
         df_relevant = df.filter(
             pl.col(VALUE_TIME_COL).is_between(date_from, date_to),
         )
 
+        power_hour = get_power_hour()
         if power_hour > 0:
             df_relevant = df_relevant.filter(pl.col(POWER_HOUR_COL) == power_hour)
 
@@ -98,7 +112,7 @@ def server(input: Inputs, output: Outputs, session: Session):
     def get_limits():
         col, actual_col = get_cols()
         df = get_data()
-        x = df.select(pl.min(col).alias("min"), pl.max(col).alias("max"))
+        x = df.select(pl.min(actual_col).alias("min"), pl.max(actual_col).alias("max"))
         return 0, x[0, "max"]
 
     @render_widget

@@ -88,6 +88,69 @@ def compute_actuals(df_raw_actuals: pl.DataFrame) -> pl.DataFrame:
     return df_actuals
 
 
+def compute_eq(df_raw_eq: pl.DataFrame) -> pl.DataFrame:
+    # forecast_horizon = (
+    #     df_raw_eq.with_columns(
+    #         pl.col(FORECAST_TIME_COL + "_utc").dt.hour().alias("forecast_hour"),
+    #         pl.col(VALUE_TIME_COL).sub(pl.col(FORECAST_TIME_COL)).alias("days_diff"),
+    #     )
+    #     .group_by("forecast_hour", pl.col(TAG_COL))
+    #     .agg(pl.max("days_diff"))
+    #     .sort("forecast_hour", TAG_COL)
+    # )
+    # forecast_horizon.filter(pl.col("forecast_hour") >= 6)
+
+    # df_raw_eq.select(pl.col(COMMODITY_COL).unique())
+
+    df_dah = df_raw_eq.with_columns(
+        pl.col(FORECAST_TIME_COL).dt.date().alias(FORECAST_DATE_COL),
+        pl.col(VALUE_TIME_COL).dt.date().alias(VALUE_DATE_COL),
+        pl.col(FORECAST_TIME_COL + "_utc").dt.hour().alias("forecast_hour"),
+    ).filter(
+        pl.col(VALUE_DATE_COL).sub(pl.col(FORECAST_DATE_COL)) == pl.duration(days=1),
+        pl.col("forecast_hour") == 6,
+    )
+
+    # df_dah.select(pl.col(TAG_COL).unique())
+    # df_dah.filter(pl.col(TAG_COL) == "iconsr")
+
+    # df_latest_forecast = df_dah.filter(
+    #     pl.col(FORECAST_TIME_COL)
+    #     == pl.col(FORECAST_TIME_COL).max().over(VALUE_TIME_COL)
+    # )
+
+    df_long_eq = (
+        df_dah.with_columns(
+            pl.col([COMMODITY_COL, LOCATION_COL]).str.to_lowercase(),
+        )
+        .with_columns(
+            pl.col(LOCATION_COL).replace("", None),
+        )
+        .with_columns(
+            pl.concat_str(
+                [pl.col(COMMODITY_COL), pl.col(LOCATION_COL)],
+                separator="_",
+                ignore_nulls=True,
+            ).alias("production")
+        )
+    )
+
+    df_wide_eq = df_long_eq.pivot(
+        on=["production"],
+        index=[FORECAST_TIME_COL, VALUE_TIME_COL, TAG_COL],
+        values=VALUE_COL,
+    ).sort([FORECAST_TIME_COL, VALUE_TIME_COL])
+
+    df_eq = (
+        df_wide_eq.with_columns(pl.col(VALUE_TIME_COL).dt.truncate("1h"))
+        .group_by(FORECAST_TIME_COL, VALUE_TIME_COL, TAG_COL)
+        .agg(cs.numeric().mean())
+        .sort(FORECAST_TIME_COL, VALUE_TIME_COL)
+    )
+
+    return df_eq
+
+
 if __name__ == "__main__":
     df_raw_enfor = pl.read_parquet("data/raw_enfor.parquet")
     df_enfor = compute_enfor(df_raw_enfor)
@@ -96,3 +159,7 @@ if __name__ == "__main__":
     df_raw_actuals = pl.read_parquet("data/raw_actuals.parquet")
     df_actuals = compute_actuals(df_raw_actuals)
     df_actuals.write_parquet("data/actuals.parquet")
+
+    df_raw_eq = pl.read_parquet("data/eq/raw/*.parquet")
+    df_eq = compute_eq(df_raw_eq)
+    df_eq.write_parquet("data/eq.parquet")
