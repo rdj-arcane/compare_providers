@@ -25,6 +25,11 @@ max_date = date(2024, 9, 1)
 
 df_enfor = pl.read_parquet("data/enfor.parquet")
 df_eq = pl.read_parquet("data/eq.parquet")
+df_refinitiv = (
+    pl.scan_parquet("data/refinitiv.parquet")
+    .filter(pl.col(BIDDING_ZONE_COL) == "dk1")
+    .collect()
+)
 df_actuals = pl.read_parquet("data/actuals.parquet").with_columns(
     pl.col(VALUE_TIME_COL).dt.hour().add(1).alias(POWER_HOUR_COL)
 )
@@ -42,7 +47,9 @@ def date_to_datetime(date: date) -> datetime:
 app_ui = ui.page_fluid(
     ui.layout_sidebar(
         ui.sidebar(
-            ui.input_select("provider", label="Provider", choices=["enfor", "eq"]),
+            ui.input_select(
+                "provider", label="Provider", choices=["enfor", "eq", "refinitiv"]
+            ),
             ui.input_select("tag", label="Tag", choices=eq_tags_sorted),
             ui.input_date_range(
                 "date_range", label="Date range", start=min_date, end=max_date
@@ -87,6 +94,8 @@ def server(input: Inputs, output: Outputs, session: Session):
                 df_forecast = df_enfor
             case "eq":
                 df_forecast = df_eq.filter(pl.col("tag") == input.tag())
+            case "refinitiv":
+                df_forecast = df_refinitiv
 
         df = df_forecast.join(df_actuals, on=VALUE_TIME_COL)
 

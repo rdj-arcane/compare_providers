@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 import polars as pl
 import polars.selectors as cs
 
@@ -151,6 +152,110 @@ def compute_eq(df_raw_eq: pl.DataFrame) -> pl.DataFrame:
     return df_eq
 
 
+def parse_refinitiv_csv(csv_file) -> pl.LazyFrame:
+    df = (
+        pl.scan_csv(
+            csv_file,
+            separator="|",
+            skip_rows=1,
+            schema={
+                "Id": pl.Utf8,
+                "ForecastDate": pl.Utf8,
+                "ValueDate": pl.Utf8,
+                "Value": pl.Float32,
+            },
+        )
+        .rename(
+            {
+                "Id": SERIES_ID_COL,
+                "ForecastDate": FORECAST_TIME_COL + "_utc",
+                "ValueDate": VALUE_TIME_COL + "_utc",
+                "Value": VALUE_COL,
+            }
+        )
+        .with_columns(
+            [
+                cs.ends_with("_utc").str.to_datetime(
+                    "%d.%m.%Y %H:%M:%S", time_unit="ns", time_zone="UTC"
+                )
+            ]
+        )
+    )
+
+    return df
+
+
+def read_refinitiv(csv_dir: Path) -> pl.DataFrame:
+    csv_files = list(csv_dir.glob("*.CSV"))
+    queries = [parse_refinitiv_csv(csv_file) for csv_file in csv_files]
+    query = pl.concat(queries)
+
+    median_ids = pl.LazyFrame(
+        {
+            SERIES_ID_COL: [
+                "106330089",
+                "106330238",
+                "117637622",
+                "117637818",
+                "117637902",
+                "117637668",
+            ],
+            PRODUCTION_COL: [
+                "solar",
+                "solar",
+                "wind_onshore",
+                "wind_onshore",
+                "wind_offshore",
+                "wind_offshore",
+            ],
+            # FORECAST_TYPE_COL: ["solar", "solar", "wind", "wind", "wind", "wind"],
+            # LOCATION_COL: [None, None, "onshore", "onshore", "offshore", "offshore"],
+            BIDDING_ZONE_COL: ["dk1", "dk2", "dk1", "dk2", "dk1", "dk2"],
+        }
+    )
+
+    df = query.join(median_ids, on=SERIES_ID_COL, how="inner").collect()
+
+    return df
+
+
+def compute_refinitiv(df_raw_refinitiv: pl.DataFrame) -> pl.DataFrame:
+    df_dah_refinitiv = (
+        df_raw_refinitiv.with_columns(
+            cs.ends_with("_utc")
+            .dt.convert_time_zone("Europe/Copenhagen")
+            .name.map(lambda c: c.rstrip("_utc"))
+        )
+        .with_columns(
+            pl.col(FORECAST_TIME_COL).dt.date().alias(FORECAST_DATE_COL),
+            pl.col(VALUE_TIME_COL).dt.date().alias(VALUE_DATE_COL),
+            pl.col(FORECAST_TIME_COL + "_utc").dt.hour().alias("forecast_hour"),
+        )
+        .filter(
+            pl.col(VALUE_DATE_COL).sub(pl.col(FORECAST_DATE_COL))
+            == pl.duration(days=1),
+            pl.col("forecast_hour") == 6,
+        )
+    )
+
+    df_wide_refinitiv = (
+        df_dah_refinitiv.pivot(
+            on=PRODUCTION_COL,
+            index=[FORECAST_TIME_COL, VALUE_TIME_COL, BIDDING_ZONE_COL],
+            values=VALUE_COL,
+        )
+        .with_columns(
+            pl.fold(0, lambda acc, s: acc + s, cs.starts_with("wind")).alias("wind"),
+        )
+        .with_columns(
+            cs.numeric().round(2).name.keep(),
+        )
+        .sort(FORECAST_TIME_COL, VALUE_TIME_COL)
+    )
+
+    return df_wide_refinitiv
+
+
 if __name__ == "__main__":
     df_raw_enfor = pl.read_parquet("data/raw_enfor.parquet")
     df_enfor = compute_enfor(df_raw_enfor)
@@ -163,3 +268,7 @@ if __name__ == "__main__":
     df_raw_eq = pl.read_parquet("data/eq/raw/*.parquet")
     df_eq = compute_eq(df_raw_eq)
     df_eq.write_parquet("data/eq.parquet")
+
+    df_raw_refinitiv = read_refinitiv(Path("data/refinitiv/raw"))
+    df_refinitiv = compute_refinitiv(df_raw_refinitiv)
+    df_refinitiv.write_parquet("data/refinitiv.parquet")
