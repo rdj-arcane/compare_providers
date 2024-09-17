@@ -115,8 +115,9 @@ class EQ:
         if not save_dir.exists():
             save_dir.mkdir(parents=True)
 
-        current_date = date_from
-        for curve in EQCurves:
+        for curve in list(EQCurves):
+            print(f"Getting {curve.name}")
+            current_date = date_from
             while current_date < date_to:
                 current_date += timedelta(days=1)
                 save_file = (
