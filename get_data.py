@@ -1,6 +1,6 @@
 import os
 from enum import StrEnum
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from pathlib import Path
 import pandas as pd
@@ -53,33 +53,36 @@ class EQ:
     def __init__(self, api_key):
         self.eq = EnergyQuantified(api_key=api_key)
 
-    def eq_to_pl(self, ts: Timeseries) -> pl.DataFrame:
-        df = ts.to_dataframe()
-        df.reset_index(inplace=True)
+    def single_ts_to_pl(self, ts: Timeseries) -> pl.DataFrame:
+        df_pd = ts.to_dataframe()
+        df_pd.reset_index(inplace=True)
+        raw_df = pl.from_pandas(df_pd)
+        raw_df.columns = [VALUE_TIME_COL, VALUE_COL]
 
-        raw_columns = df.columns.get_level_values(-1)
-        columns_list = raw_columns.to_list()
-        columns_list = [VALUE_TIME_COL, VALUE_COL]
-        df.columns = columns_list
-        eq_df = pl.from_pandas(df)
+        forecast_time = ts.instance.issued
+        tag = ts.instance.tag
+        categories = ts.curve.categories
+        if "Wind" in categories:
+            commodity = "Wind"
+        elif "Solar" in categories:
+            commodity = "Solar"
+        else:
+            commodity = ""
 
-        return eq_df
+        if "Offshore" in categories:
+            location = "Offshore"
+        elif "Onshore" in categories:
+            location = "Onshore"
+        else:
+            location = ""
 
-    def get_eq_single_forecat(
-        self, forecast_time: datetime, curve: EQCurves
-    ) -> pl.DataFrame:
-        df_forecast_ts = self.eq.instances.get(
-            curve=curve.value,
-            issued=forecast_time,
-            tag="ec-ens",
-            frequency=Frequency.PT1H,
-            ensembles=False,
-        )
-
-        df_raw_forecast = self.eq_to_pl(df_forecast_ts)
-
-        df_forecast = (
-            df_raw_forecast.with_columns(pl.lit(forecast_time).alias(FORECAST_TIME_COL))
+        df = (
+            raw_df.with_columns(
+                pl.lit(forecast_time).alias(FORECAST_TIME_COL),
+                pl.lit(commodity).alias(COMMODITY_COL),
+                pl.lit(location).alias(LOCATION_COL),
+                pl.lit(tag).alias(TAG_COL),
+            )
             .with_columns(
                 pl.col([VALUE_TIME_COL, FORECAST_TIME_COL])
                 .dt.convert_time_zone("Europe/Copenhagen")
@@ -90,15 +93,41 @@ class EQ:
                 .dt.convert_time_zone("UTC")
                 .alias(FORECAST_TIME_COL + "_utc")
             )
-            .select(
-                FORECAST_TIME_COL + "_utc", FORECAST_TIME_COL, VALUE_TIME_COL, VALUE_COL
-            )
         )
+
+        return df
+
+    def get_eq_single_forecat(
+        self, forecast_time: datetime, curve: EQCurves
+    ) -> pl.DataFrame:
+        df_forecast_ts = self.eq.instances.load(
+            curve=curve.value, issued_at_latest=forecast_time, limit=10
+        )
+
+        df_forecast_list = [self.single_ts_to_pl(ts) for ts in df_forecast_ts]
+
+        df_forecast = pl.concat(df_forecast_list)
 
         return df_forecast
 
-    def get_eq(self):
-        return self.eq
+    def get_eq(self, date_from: datetime, date_to: datetime) -> None:
+        save_dir = Path("data/eq/raw")
+        if not save_dir.exists():
+            save_dir.mkdir(parents=True)
+
+        current_date = date_from
+        for curve in EQCurves:
+            while current_date < date_to:
+                current_date += timedelta(days=1)
+                save_file = (
+                    save_dir
+                    / f"{curve.name}_{current_date.isoformat().replace(':', '_')}.parquet"
+                )
+                if save_file.exists():
+                    continue
+
+                df = self.get_eq_single_forecat(current_date, curve)
+                df.write_parquet(save_file)
 
 
 if __name__ == "__main__":
@@ -112,6 +141,5 @@ if __name__ == "__main__":
     load_dotenv()
     api_key = os.getenv("EQ_API_KEY")
     eq = EQ(api_key)
-    dt = datetime(2024, 1, 1, 12, 0, 0)
-    df_forecast = eq.get_eq_single_forecat(dt, EQCurves.DK_WIND)
-    print(df_forecast)
+    dt = date_from + timedelta(hours=11, minutes=10)
+    eq.get_eq(dt, date_to)
