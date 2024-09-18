@@ -90,19 +90,6 @@ def compute_actuals(df_raw_actuals: pl.DataFrame) -> pl.DataFrame:
 
 
 def compute_eq(df_raw_eq: pl.DataFrame) -> pl.DataFrame:
-    # forecast_horizon = (
-    #     df_raw_eq.with_columns(
-    #         pl.col(FORECAST_TIME_COL + "_utc").dt.hour().alias("forecast_hour"),
-    #         pl.col(VALUE_TIME_COL).sub(pl.col(FORECAST_TIME_COL)).alias("days_diff"),
-    #     )
-    #     .group_by("forecast_hour", pl.col(TAG_COL))
-    #     .agg(pl.max("days_diff"))
-    #     .sort("forecast_hour", TAG_COL)
-    # )
-    # forecast_horizon.filter(pl.col("forecast_hour") >= 6)
-
-    # df_raw_eq.select(pl.col(COMMODITY_COL).unique())
-
     df_dah = df_raw_eq.with_columns(
         pl.col(FORECAST_TIME_COL).dt.date().alias(FORECAST_DATE_COL),
         pl.col(VALUE_TIME_COL).dt.date().alias(VALUE_DATE_COL),
@@ -111,14 +98,6 @@ def compute_eq(df_raw_eq: pl.DataFrame) -> pl.DataFrame:
         pl.col(VALUE_DATE_COL).sub(pl.col(FORECAST_DATE_COL)) == pl.duration(days=1),
         pl.col("forecast_hour") == 6,
     )
-
-    # df_dah.select(pl.col(TAG_COL).unique())
-    # df_dah.filter(pl.col(TAG_COL) == "iconsr")
-
-    # df_latest_forecast = df_dah.filter(
-    #     pl.col(FORECAST_TIME_COL)
-    #     == pl.col(FORECAST_TIME_COL).max().over(VALUE_TIME_COL)
-    # )
 
     df_long_eq = (
         df_dah.with_columns(
@@ -208,8 +187,6 @@ def read_refinitiv(csv_dir: Path) -> pl.DataFrame:
                 "wind_offshore",
                 "wind_offshore",
             ],
-            # FORECAST_TYPE_COL: ["solar", "solar", "wind", "wind", "wind", "wind"],
-            # LOCATION_COL: [None, None, "onshore", "onshore", "offshore", "offshore"],
             BIDDING_ZONE_COL: ["dk1", "dk2", "dk1", "dk2", "dk1", "dk2"],
         }
     )
