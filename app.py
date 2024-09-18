@@ -25,6 +25,11 @@ max_date = date(2024, 9, 1)
 
 df_enfor = pl.read_parquet("data/enfor.parquet")
 df_eq = pl.read_parquet("data/eq.parquet")
+df_meteologica = (
+    pl.scan_parquet("data/meteologica.parquet")
+    .filter(pl.col(BIDDING_ZONE_COL) == "dk1")
+    .collect()
+)
 df_refinitiv = (
     pl.scan_parquet("data/refinitiv.parquet")
     .filter(pl.col(BIDDING_ZONE_COL) == "dk1")
@@ -48,7 +53,9 @@ app_ui = ui.page_fluid(
     ui.layout_sidebar(
         ui.sidebar(
             ui.input_select(
-                "provider", label="Provider", choices=["enfor", "eq", "refinitiv"]
+                "provider",
+                label="Provider",
+                choices=["enfor", "eq", "refinitiv", "meteologica"],
             ),
             ui.input_select("tag", label="Tag", choices=eq_tags_sorted),
             ui.input_date_range(
@@ -96,6 +103,8 @@ def server(input: Inputs, output: Outputs, session: Session):
                 df_forecast = df_eq.filter(pl.col("tag") == input.tag())
             case "refinitiv":
                 df_forecast = df_refinitiv
+            case "meteologica":
+                df_forecast = df_meteologica
 
         df = df_forecast.join(df_actuals, on=VALUE_TIME_COL)
 

@@ -233,6 +233,14 @@ def compute_refinitiv(df_raw_refinitiv: pl.DataFrame) -> pl.DataFrame:
     return df_wide_refinitiv
 
 
+def compute_meteologica(df_raw_meteologica: pl.DataFrame) -> pl.DataFrame:
+    df_meteologica = df_raw_meteologica.with_columns(
+        pl.col(VALUE_TIME_COL).dt.cast_time_unit("ns"),
+    )
+
+    return df_meteologica
+
+
 if __name__ == "__main__":
     df_raw_enfor = pl.read_parquet("data/raw_enfor.parquet")
     df_enfor = compute_enfor(df_raw_enfor)
@@ -249,3 +257,7 @@ if __name__ == "__main__":
     df_raw_refinitiv = read_refinitiv(Path("data/refinitiv/raw"))
     df_refinitiv = compute_refinitiv(df_raw_refinitiv)
     df_refinitiv.write_parquet("data/refinitiv.parquet")
+
+    df_raw_meteologica = pl.read_parquet("data/raw_meteologica.parquet")
+    df_meteologica = compute_meteologica(df_raw_meteologica)
+    df_meteologica.write_parquet("data/meteologica.parquet")
