@@ -12,7 +12,7 @@ from energyquantified.data.timeseries import Timeseries
 from dotenv import load_dotenv
 
 from dbquery.cache.cache_global import Cache
-from dbquery.nordpool.actuals import actuals_production_get
+from dbquery.nordpool.actuals import actuals_production_get, actuals_consumption_get
 
 from constants import *
 
@@ -36,9 +36,18 @@ def get_enfor(date_from, date_to):
 
 
 def get_actual_production(date_from, date_to):
-    df_raw_actuals = actuals_production_get(date_from, date_to, ["DK1"])
-    actuals_file = save_dir / "raw_actuals.parquet"
+    df_raw_production = actuals_production_get(date_from, date_to, ["DK1"])
+    df_raw_consumption = actuals_consumption_get(date_from, date_to, ["DK1"])
+    df_consumption = df_raw_consumption.rename({"volume": "load"}).select(
+        DELIVERY_START_COL, BIDDING_ZONE_COL, "load"
+    )
+    df_raw_actuals = (
+        df_raw_production.drop("load")
+        .join(df_consumption, on=[DELIVERY_START_COL, BIDDING_ZONE_COL])
+        .sort(DELIVERY_START_COL)
+    )
 
+    actuals_file = save_dir / "raw_actuals.parquet"
     df_raw_actuals.write_parquet(actuals_file)
 
 

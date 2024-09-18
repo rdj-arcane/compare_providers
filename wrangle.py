@@ -70,7 +70,7 @@ def compute_enfor(df_raw_enfor: pl.DataFrame) -> pl.DataFrame:
 def compute_actuals(df_raw_actuals: pl.DataFrame) -> pl.DataFrame:
     rename_map = {
         col: col + "_actual"
-        for col in ["solar", "wind", "wind_offshore", "wind_onshore"]
+        for col in ["solar", "wind", "wind_offshore", "wind_onshore", "load"]
     }
     rename_map[DELIVERY_START_COL] = VALUE_TIME_COL
 
