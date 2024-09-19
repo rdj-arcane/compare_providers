@@ -23,7 +23,8 @@ VALUE_TIME_COL = "value_time"
 min_date = date(2024, 1, 1)
 max_date = date(2024, 9, 1)
 
-df_enfor = pl.read_parquet("data/enfor.parquet")
+df_enfor_dah = pl.read_parquet("data/enfor.parquet")
+df_enfor_next_hour = pl.read_parquet("data/enfor_next_hour.parquet")
 df_eq = pl.read_parquet("data/eq.parquet")
 df_meteologica = (
     pl.scan_parquet("data/meteologica.parquet")
@@ -57,7 +58,14 @@ app_ui = ui.page_fluid(
                 label="Provider",
                 choices=["enfor", "eq", "refinitiv", "meteologica"],
             ),
-            ui.input_select("tag", label="Tag", choices=eq_tags_sorted),
+            ui.panel_conditional(
+                "input.provider == 'eq'",
+                ui.input_select("tag", label="Tag", choices=eq_tags_sorted),
+            ),
+            ui.panel_conditional(
+                "input.provider == 'enfor'",
+                ui.input_select("horizon", label="Horizon", choices=["dah", "next"]),
+            ),
             ui.input_date_range(
                 "date_range", label="Date range", start=min_date, end=max_date
             ),
@@ -98,7 +106,10 @@ def server(input: Inputs, output: Outputs, session: Session):
     def get_forecast_data():
         match input.provider():
             case "enfor":
-                df_forecast = df_enfor
+                if input.horizon() == "dah":
+                    df_forecast = df_enfor_dah
+                elif input.horizon() == "next":
+                    df_forecast = df_enfor_next_hour
             case "eq":
                 df_forecast = df_eq.filter(pl.col("tag") == input.tag())
             case "refinitiv":
@@ -131,7 +142,7 @@ def server(input: Inputs, output: Outputs, session: Session):
         col, actual_col = get_cols()
         df = get_data()
         x = df.select(pl.min(actual_col).alias("min"), pl.max(actual_col).alias("max"))
-        return 0, x[0, "max"]
+        return x[0, "min"], x[0, "max"]
 
     @render_widget
     def comparison_plot():

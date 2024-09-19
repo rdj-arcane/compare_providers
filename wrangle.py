@@ -17,7 +17,7 @@ def map_asset_location(input_str: str) -> str:
         return input_str
 
 
-def compute_enfor(df_raw_enfor: pl.DataFrame) -> pl.DataFrame:
+def compute_enfor_dah(df_raw_enfor: pl.DataFrame) -> pl.DataFrame:
     df_dah_enfor = df_raw_enfor.with_columns(
         pl.col(FORECAST_TIME_COL).dt.date().alias(FORECAST_DATE_COL),
         pl.col(VALUE_TIME_COL).dt.date().alias(VALUE_DATE_COL),
@@ -25,6 +25,51 @@ def compute_enfor(df_raw_enfor: pl.DataFrame) -> pl.DataFrame:
     ).filter(
         pl.col(VALUE_DATE_COL).sub(pl.col(FORECAST_DATE_COL)) == pl.duration(days=1),
         pl.col("forecast_hour") == 11,
+    )
+
+    df_long_enfor = (
+        df_dah_enfor.with_columns(
+            pl.col(ASSET_KEY_COL)
+            .str.split("_")
+            .list.get(1, null_on_oob=True)
+            .alias("location"),
+            pl.col(ASSET_KEY_COL)
+            .str.extract(r"([a-z]+[1-9]?)_?")
+            .alias(BIDDING_ZONE_COL),
+        )
+        .with_columns(
+            pl.col("location")
+            .replace({"land": "onshore", "sea": "offshore"})
+            .name.keep()
+        )
+        .with_columns(
+            pl.concat_str(
+                [pl.col(FORECAST_TYPE_COL), pl.col("location")],
+                separator="_",
+                ignore_nulls=True,
+            ).alias("production")
+        )
+    )
+
+    df_wide_enfor = (
+        df_long_enfor.pivot(
+            on=["production"],
+            index=[FORECAST_TIME_COL, VALUE_TIME_COL, BIDDING_ZONE_COL],
+            values=COR_POWER_COL,
+        )
+        .rename(map_asset_location)
+        .with_columns(
+            pl.fold(0, lambda acc, s: acc + s, cs.starts_with("wind")).alias("wind"),
+        )
+        .sort([FORECAST_TIME_COL, VALUE_TIME_COL])
+    )
+
+    return df_wide_enfor
+
+
+def compute_enfor_next_hour(df_raw_enfor: pl.DataFrame) -> pl.DataFrame:
+    df_dah_enfor = df_raw_enfor.filter(
+        pl.col(VALUE_TIME_COL).sub(pl.col(FORECAST_TIME_COL)) == pl.duration(hours=1),
     )
 
     df_long_enfor = (
@@ -243,8 +288,11 @@ def compute_meteologica(df_raw_meteologica: pl.DataFrame) -> pl.DataFrame:
 
 if __name__ == "__main__":
     df_raw_enfor = pl.read_parquet("data/raw_enfor.parquet")
-    df_enfor = compute_enfor(df_raw_enfor)
-    df_enfor.write_parquet("data/enfor.parquet")
+    df_enfor_dah = compute_enfor_dah(df_raw_enfor)
+    df_enfor_dah.write_parquet("data/enfor.parquet")
+
+    df_enfor_next_hour = compute_enfor_next_hour(df_raw_enfor)
+    df_enfor_next_hour.write_parquet("data/enfor_next_hour.parquet")
 
     df_raw_actuals = pl.read_parquet("data/raw_actuals.parquet")
     df_actuals = compute_actuals(df_raw_actuals)

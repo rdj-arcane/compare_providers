@@ -28,7 +28,7 @@ def get_enfor(date_from, date_to):
         date_from,
         date_to,
         asset_keys=["dk1", "dk1_land", "dk1_sea"],
-        forecast_hours=[11],
+        # forecast_hours=[11],
     )
     enfor_file = save_dir / "raw_enfor.parquet"
 
@@ -146,10 +146,10 @@ if __name__ == "__main__":
     date_to = datetime(2024, 9, 1, tzinfo=tz)
 
     # get_enfor(date_from, date_to)
-    # get_actual_production(date_from, date_to)
+    get_actual_production(date_from, date_to)
 
-    load_dotenv()
-    api_key = os.getenv("EQ_API_KEY")
-    eq = EQ(api_key)
-    dt = date_from + timedelta(hours=11, minutes=10)
-    eq.get_eq(dt, date_to)
+    # load_dotenv()
+    # api_key = os.getenv("EQ_API_KEY")
+    # eq = EQ(api_key)
+    # dt = date_from + timedelta(hours=11, minutes=10)
+    # eq.get_eq(dt, date_to)
