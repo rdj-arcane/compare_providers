@@ -139,7 +139,7 @@ def server(input: Inputs, output: Outputs, session: Session):
 
     @reactive.Calc
     def get_limits():
-        col, actual_col = get_cols()
+        _, actual_col = get_cols()
         df = get_data()
         x = df.select(pl.min(actual_col).alias("min"), pl.max(actual_col).alias("max"))
         return x[0, "min"], x[0, "max"]
